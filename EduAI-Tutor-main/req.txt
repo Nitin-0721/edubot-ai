@@ -1,0 +1,16 @@
+langchain
+langchain-core
+langchain-community
+langchain-openai
+openai
+streamlit
+python-dotenv
+numpy 
+faiss-cpu
+pypdf
+langgraph
+
+fastapi
+uvicorn
+PyPDF2
+python-multipart
