@@ -1,9 +1,9 @@
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph
 from typing import TypedDict, List, Iterator, Dict
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import OpenAIEmbeddings
 
 
 class GraphState(TypedDict):
@@ -15,14 +15,14 @@ class notes_generator:
 
     def __init__(
         self,
-        llm_model: str = "gpt-4o-mini",
+        llm_model: str = "llama-3.3-70b-versatile",
         faiss_path: str = "faiss_index_local",
-        embed_model: str = "text-embedding-3-small",
+        embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     ):
-        self.llm = ChatOpenAI(model=llm_model, streaming=True)
+        self.llm = ChatGroq(model=llm_model, streaming=True)
         self.vectorstore = FAISS.load_local(
             faiss_path,
-            embeddings=OpenAIEmbeddings(model=embed_model),
+            embeddings=HuggingFaceEmbeddings(model_name=embed_model),
             allow_dangerous_deserialization=True,
         )
         self.graph = self.build_graph()
@@ -48,7 +48,7 @@ Your task is to generate well detailed study notes from the provided context. Th
 - Preserve important technical terminology, formulas, or figures if present.
 - Avoid copying the context verbatim rephrase and simplify where appropriate.
 - Organize content logically with proper indentation and formatting.
-- Do not use '#' 
+- Do not use '#'
 
  Context:
 {context}
@@ -63,7 +63,6 @@ Now generate the notes below:
         return state
 
     def build_graph(self):
-
         builder = StateGraph(GraphState)
         builder.add_node("llm", self.llm_node)
         builder.add_node("retriever", self.retriever_node)
@@ -81,11 +80,8 @@ Now generate the notes below:
         return self.graph.invoke(state)
 
     def run_stream(self, state: GraphState) -> Iterator[Dict]:
-        """Run notes generation with streaming"""
-        # Run retrieval
         state = self.retriever_node(state)
 
-        # Prepare prompt
         context = "\n\n".join(state["context"])
         prompt = PromptTemplate(
             template="""You are an academic expert who specializes in summarizing educational content into clear, structured notes for students.
@@ -97,7 +93,7 @@ Your task is to generate well detailed study notes from the provided context. Th
 - Preserve important technical terminology, formulas, or figures if present.
 - Avoid copying the context verbatim rephrase and simplify where appropriate.
 - Organize content logically with proper indentation and formatting.
-- Do not use '#' 
+- Do not use '#'
 
  Context:
 {context}
@@ -108,7 +104,6 @@ Now generate the notes below:
         )
         formatted_prompt = prompt.format(context=context)
 
-        # Stream the response
         full_response = ""
         for chunk in self.llm.stream(formatted_prompt):
             if chunk.content:
@@ -117,4 +112,3 @@ Now generate the notes below:
 
         state["response"] = full_response
         yield {"state": state}
-

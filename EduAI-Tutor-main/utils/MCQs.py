@@ -1,9 +1,10 @@
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph
 from typing import TypedDict, List, Iterator, Dict
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings
+
 
 class GraphState(TypedDict):
     context: List[str]
@@ -14,14 +15,14 @@ class mcqs_generator:
 
     def __init__(
         self,
-        llm_model: str = "gpt-4o-mini",
+        llm_model: str = "llama-3.3-70b-versatile",
         faiss_path: str = "faiss_index_local",
-        embed_model: str = "text-embedding-3-small",
+        embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     ):
-        self.llm = ChatOpenAI(model=llm_model, streaming=True)
+        self.llm = ChatGroq(model=llm_model, streaming=True)
         self.vectorstore = FAISS.load_local(
             faiss_path,
-            embeddings=OpenAIEmbeddings(model=embed_model),
+            embeddings=HuggingFaceEmbeddings(model_name=embed_model),
             allow_dangerous_deserialization=True,
         )
         self.graph = self.build_graph()
@@ -67,7 +68,6 @@ Generate the questions now:
         return state
 
     def build_graph(self):
-
         builder = StateGraph(GraphState)
         builder.add_node("llm", self.llm_node)
         builder.add_node("retriever", self.retriever_node)
@@ -85,11 +85,8 @@ Generate the questions now:
         return self.graph.invoke(state)
 
     def run_stream(self, state: GraphState) -> Iterator[Dict]:
-        """Run MCQ generation with streaming"""
-        # Run retrieval
         state = self.retriever_node(state)
-        
-        # Prepare prompt
+
         context = "\n\n".join(state["context"])
         prompt = PromptTemplate(
             template="""You are an expert question paper setter for academic exams.
@@ -116,14 +113,12 @@ Generate the questions now:
             input_variables=["context"],
         )
         formatted_prompt = prompt.format(context=context)
-        
-        # Stream the response
+
         full_response = ""
         for chunk in self.llm.stream(formatted_prompt):
             if chunk.content:
                 full_response += chunk.content
                 yield {"response_chunk": chunk.content}
-        
-        state["response"] = full_response
 
+        state["response"] = full_response
         yield {"state": state}

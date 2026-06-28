@@ -1,9 +1,9 @@
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph
 from typing import TypedDict, List, Iterator, Dict
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings
 
 
 class GraphState(TypedDict):
@@ -17,14 +17,14 @@ class DocumentQA:
 
     def __init__(
         self,
-        llm_model: str = "gpt-4o-mini",
+        llm_model: str = "llama-3.3-70b-versatile",
         faiss_path: str = "faiss_index_local",
-        embed_model: str = "text-embedding-3-small",
+        embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     ):
-        self.llm = ChatOpenAI(model=llm_model, streaming=True)
+        self.llm = ChatGroq(model=llm_model, streaming=True)
         self.vectorstore = FAISS.load_local(
             faiss_path,
-            embeddings=OpenAIEmbeddings(model=embed_model),
+            embeddings=HuggingFaceEmbeddings(model_name=embed_model),
             allow_dangerous_deserialization=True,
         )
         self.graph = self.build_graph()
@@ -66,7 +66,6 @@ class DocumentQA:
         return builder.compile()
 
     def init_state(self) -> GraphState:
-        """Initialize a new conversation state"""
         return {
             "query": "",
             "messages": [
@@ -81,16 +80,14 @@ class DocumentQA:
         }
 
     def restore_state(self, serialized_state: dict) -> GraphState:
-        """Restore state from serialized format (e.g., from database)"""
         if serialized_state is None:
             return self.init_state()
-        
+
         messages = []
         for msg in serialized_state.get("messages", []):
             if isinstance(msg, dict):
                 msg_type = msg.get("type", "human")
                 content = msg.get("content", "")
-                
                 if msg_type == "system":
                     messages.append(SystemMessage(content=content))
                 elif msg_type == "ai":
@@ -99,7 +96,7 @@ class DocumentQA:
                     messages.append(HumanMessage(content=content))
             else:
                 messages.append(msg)
-        
+
         return {
             "query": serialized_state.get("query", ""),
             "messages": messages,
@@ -108,7 +105,6 @@ class DocumentQA:
         }
 
     def serialize_state(self, state: GraphState) -> dict:
-        """Serialize state for storage in database"""
         serialized_messages = []
         for msg in state["messages"]:
             if isinstance(msg, SystemMessage):
@@ -117,7 +113,7 @@ class DocumentQA:
                 serialized_messages.append({"type": "ai", "content": msg.content})
             elif isinstance(msg, HumanMessage):
                 serialized_messages.append({"type": "human", "content": msg.content})
-        
+
         return {
             "query": state.get("query", ""),
             "messages": serialized_messages,
@@ -126,33 +122,25 @@ class DocumentQA:
         }
 
     def run(self, query: str, state: GraphState) -> GraphState:
-        """Run a query through the QA system"""
         state["query"] = query
         return self.graph.invoke(state)
 
     def run_stream(self, query: str, state: GraphState) -> Iterator[Dict]:
-        """Run a query with streaming response"""
         state["query"] = query
-        
-        # Run retrieval and memory nodes
         state = self.memory_node(state)
         state = self.retriever_node(state)
-        
-        # Prepare messages for LLM
+
         context = "\n\n".join(state["context"])
         messages = state["messages"] + [
             HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{state['query']}")
         ]
-        
-        # Stream the response
+
         full_response = ""
         for chunk in self.llm.stream(messages):
             if chunk.content:
                 full_response += chunk.content
                 yield {"response_chunk": chunk.content}
-        
-        # Update state with complete response
+
         state["messages"].append(AIMessage(content=full_response))
         state["response"] = full_response
-        
         yield {"state": state}
