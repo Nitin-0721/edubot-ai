@@ -13,15 +13,15 @@ from utils.Notes import notes_generator
 from db.mg_database import DatabaseManager
 
 try:
-    if "OPENAI_API_KEY" in st.secrets:
-        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+    if "GROQ_API_KEY" in st.secrets:
+        os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 except FileNotFoundError:
     from dotenv import load_dotenv
     load_dotenv()
 
 
 st.set_page_config(
-    page_title="EduAI - AI-Powered Learning Assistant",
+    page_title="EduBot AI - AI-Powered Learning Assistant",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -162,7 +162,6 @@ if "initialized" not in st.session_state:
 
 
 def load_messages_from_db():
-    """Load messages from database into session state"""
     if not st.session_state.messages_loaded:
         conversation_history = st.session_state.db_manager.get_conversation_history()
         st.session_state.messages = [
@@ -173,12 +172,10 @@ def load_messages_from_db():
 
 
 def load_session(session_id: str):
-    """Load a specific session"""
     st.session_state.db_session_id = session_id
     st.session_state.messages_loaded = False
     st.session_state.initialized = False
 
-    # Load app state for this session
     app_state = st.session_state.db_manager.get_app_state(session_id)
     if app_state:
         st.session_state.vectorstore_ready = app_state["vectorstore_ready"]
@@ -187,7 +184,6 @@ def load_session(session_id: str):
         st.session_state.vectorstore_ready = False
         st.session_state.chat_state = None
 
-    # Reset QA system to force reinitialization with new state
     st.session_state.qa_system = None
     st.session_state.show_session_manager = False
     st.rerun()
@@ -195,7 +191,7 @@ def load_session(session_id: str):
 
 def main():
     st.markdown(
-        '<h1 class="main-header">🎓 EduAI: AI Tutor</h1>', unsafe_allow_html=True
+        '<h1 class="main-header">🎓 EduBot AI</h1>', unsafe_allow_html=True
     )
     st.markdown(
         '<p class="sub-header">Your AI-Powered Learning Assistant</p>',
@@ -245,13 +241,12 @@ def main():
                 st.session_state.qa_system = None
                 st.session_state.messages = []
                 st.session_state.messages_loaded = False
-                
-                # Create a new session after deletion
+
                 import time
                 new_session_id = f"session_{int(time.time() * 1000000)}"
                 st.session_state.db_manager.create_session(new_session_id, "New Session")
                 st.session_state.db_session_id = new_session_id
-                
+
                 st.success("Session reset!")
                 st.rerun()
 
@@ -265,17 +260,13 @@ def main():
             st.markdown("---")
             st.subheader("Your Sessions")
 
-            # Get current session
             current_session_id = st.session_state.db_manager.get_session_id()
             sessions = st.session_state.db_manager.get_all_sessions()
 
-            # New Session button
             if st.button("➕ New Session", use_container_width=True, type="primary"):
                 import time
                 new_session_id = f"session_{int(time.time() * 1000000)}"
-                st.session_state.db_manager.create_session(
-                    new_session_id, "New Session"
-                )
+                st.session_state.db_manager.create_session(new_session_id, "New Session")
                 load_session(new_session_id)
 
             st.markdown("**All Sessions:**")
@@ -285,8 +276,6 @@ def main():
 
             for session in sessions:
                 is_active = session["session_id"] == current_session_id
-
-                # Display session name and message count
                 display_name = session["session_name"]
                 button_label = f"{'▶ ' if is_active else ''}{display_name}"
                 if session["message_count"] > 0:
@@ -301,7 +290,7 @@ def main():
                         disabled=is_active,
                     ):
                         load_session(session["session_id"])
-                
+
                 with col2:
                     if not is_active:
                         if st.button("🗑️", key=f"delete_{session['session_id']}", use_container_width=True):
@@ -363,11 +352,9 @@ def upload_documents_page():
 
 
 def process_documents(uploaded_files):
-    """Process uploaded documents and create vector store"""
     try:
         with st.spinner("Processing documents... This may take a few moments."):
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Collect filenames for session naming
                 filenames = []
                 for uploaded_file in uploaded_files:
                     file_path = os.path.join(temp_dir, uploaded_file.name)
@@ -379,7 +366,6 @@ def process_documents(uploaded_files):
                         uploaded_file.name, uploaded_file.size
                     )
 
-                # Name session based on uploaded files
                 if filenames:
                     if len(filenames) == 1:
                         session_name = filenames[0]
@@ -421,9 +407,7 @@ def process_documents(uploaded_files):
 
     except Exception as e:
         st.error(f"Error processing documents: {str(e)}")
-        st.info(
-            "Make sure you have set up your OpenAI API key in your environment variables."
-        )
+        st.info("Make sure your GROQ_API_KEY is set in the environment variables.")
 
 
 def ask_questions_page():
@@ -445,18 +429,16 @@ def ask_questions_page():
         """
     <div class="feature-box">
         <h4>AI-Powered Q&A</h4>
-        <p>Ask any question about your uploaded documents and get intelligent, context-aware answers with streaming responses.</p>
+        <p>Ask any question about your uploaded documents and get intelligent, context-aware answers.</p>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    # Initialize QA system if needed
     if st.session_state.qa_system is None:
         with st.spinner("Initializing Q&A system..."):
             st.session_state.qa_system = DocumentQA()
 
-            # Restore chat state from database if available
             if st.session_state.chat_state:
                 st.session_state.chat_state = st.session_state.qa_system.restore_state(
                     st.session_state.chat_state
@@ -514,7 +496,6 @@ def ask_questions_page():
                 )
                 st.session_state.db_manager.save_message("assistant", full_response)
 
-                # Serialize and save chat state to database
                 serialized_state = st.session_state.qa_system.serialize_state(
                     st.session_state.chat_state
                 )
@@ -551,19 +532,12 @@ def generate_notes_page():
         """
     <div class="feature-box">
         <h4>Comprehensive Notes Generation</h4>
-        <p>Generate well-structured study notes from your documents with:</p>
-        <ul>
-            <li>Key concepts and definitions</li>
-            <li>Important facts and examples</li>
-            <li>Clear bullet-point formatting</li>
-            <li>Logical organization</li>
-        </ul>
+        <p>Generate well-structured study notes from your documents.</p>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    # Load existing notes if available
     existing_notes = st.session_state.db_manager.get_generated_content("notes")
 
     if existing_notes:
@@ -597,11 +571,7 @@ def generate_notes_page():
 
                 message_placeholder.markdown(full_response)
 
-                # Save to database
-                st.session_state.db_manager.save_generated_content(
-                    "notes", full_response
-                )
-
+                st.session_state.db_manager.save_generated_content("notes", full_response)
                 st.success("Notes generated successfully!")
 
                 st.download_button(
@@ -634,19 +604,12 @@ def create_mcqs_page():
         """
     <div class="feature-box">
         <h4>Practice Questions Generator</h4>
-        <p>Generate multiple-choice questions for exam preparation:</p>
-        <ul>
-            <li>10 carefully crafted MCQs</li>
-            <li>4 options per question (A, B, C, D)</li>
-            <li>Mixed difficulty levels</li>
-            <li>Complete answer key provided</li>
-        </ul>
+        <p>Generate multiple-choice questions for exam preparation.</p>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    # Load existing MCQs if available
     existing_mcqs = st.session_state.db_manager.get_generated_content("mcqs")
 
     if existing_mcqs:
@@ -680,11 +643,7 @@ def create_mcqs_page():
 
                 message_placeholder.markdown(full_response)
 
-                # Save to database
-                st.session_state.db_manager.save_generated_content(
-                    "mcqs", full_response
-                )
-
+                st.session_state.db_manager.save_generated_content("mcqs", full_response)
                 st.success("MCQs generated successfully!")
 
                 st.download_button(
@@ -700,12 +659,3 @@ def create_mcqs_page():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
